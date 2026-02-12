@@ -19,10 +19,11 @@ jobs:
           echo "${{ secrets.EC2_SSH_KEY }}" > ~/.ssh/private_key.pem
           chmod 600 ~/.ssh/private_key.pem
 
-      - name: Deploy to EC2
+      - name: Deploy Docker Container to EC2
         run: |
-          scp -o StrictHostKeyChecking=no -i ~/.ssh/private_key.pem index.html ${{ secrets.EC2_USER }}@${{ secrets.EC2_HOST }}:/usr/share/nginx/html/
-
           ssh -o StrictHostKeyChecking=no -i ~/.ssh/private_key.pem ${{ secrets.EC2_USER }}@${{ secrets.EC2_HOST }} "
-            sudo systemctl reload nginx
+          docker pull your-dockerhub-username/mini-cicd-demo:latest &&
+          docker stop mini-app || true &&
+          docker rm mini-app || true &&
+          docker run -d -p 80:80 --name mini-app your-dockerhub-username/mini-cicd-demo:latest
           "
