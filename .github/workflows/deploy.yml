@@ -1,4 +1,4 @@
-name: Deploy Static Site to EC2
+name: Build and Deploy to ECR + EC2
 
 on:
   push:
@@ -10,8 +10,25 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout Repository
-        uses: actions/checkout@v3
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ secrets.AWS_REGION }}
+
+      - name: Login to Amazon ECR
+        id: login-ecr
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Build, Tag, and Push Image
+        run: |
+          IMAGE_URI=${{ steps.login-ecr.outputs.registry }}/mini-cicd-demo:latest
+          docker build -t $IMAGE_URI .
+          docker push $IMAGE_URI
 
       - name: Setup SSH Key
         run: |
@@ -19,11 +36,15 @@ jobs:
           echo "${{ secrets.EC2_SSH_KEY }}" > ~/.ssh/private_key.pem
           chmod 600 ~/.ssh/private_key.pem
 
-      - name: Deploy Docker Container to EC2
+      - name: Deploy to EC2
         run: |
-          ssh -o StrictHostKeyChecking=no -i ~/.ssh/private_key.pem ${{ secrets.EC2_USER }}@${{ secrets.EC2_HOST }} "
-          docker pull your-dockerhub-username/mini-cicd-demo:latest &&
-          docker stop mini-app || true &&
-          docker rm mini-app || true &&
-          docker run -d -p 80:80 --name mini-app your-dockerhub-username/mini-cicd-demo:latest
-          "
+          ssh -o StrictHostKeyChecking=no -i ~/.ssh/private_key.pem \
+          ${{ secrets.EC2_USER }}@${{ secrets.EC2_HOST }} "
+            aws ecr get-login-password --region ${{ secrets.AWS_REGION }} | \
+            docker login --username AWS --password-stdin ${{ steps.login-ecr.outputs.registry }} && \
+            docker pull ${{ steps.login-ecr.outputs.registry }}/mini-cicd-demo:latest && \
+            docker stop mini-app || true && \
+            docker rm mini-app || true && \
+            docker run -d -p 80:80 --name mini-app \
+            ${{ steps.login-ecr.outputs.registry }}/mini-cicd-demo:latest
+
