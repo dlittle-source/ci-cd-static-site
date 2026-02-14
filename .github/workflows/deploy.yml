@@ -26,9 +26,9 @@ jobs:
 
       - name: Build, Tag, and Push Image
         run: |
-          IMAGE_URI=${{ steps.login-ecr.outputs.registry }}/mini-cicd-demo:latest
+          IMAGE_URI=${{ steps.login-ecr.outputs.registry }}/mini-cicd-demo:${{ github.sha }}
           docker build -t $IMAGE_URI .
-          docker push $IMAGE_URI
+          docker push $IMAGE_URI 
 
       - name: Setup SSH Key
         run: |
@@ -38,16 +38,36 @@ jobs:
 
       - name: Deploy to EC2
         run: |
-          ssh -o StrictHostKeyChecking=no -i ~/.ssh/private_key.pem ${{ secrets.EC2_USER }}@${{ secrets.EC2_HOST }} << 'EOF'
-          aws ecr get-login-password --region ${{ secrets.AWS_REGION }} | \
-          docker login --username AWS --password-stdin ${{ steps.login-ecr.outputs.registry }}
+          ssh -o StrictHostKeyChecking=no -i ~/.ssh/private_key.pem \
+          ${{ secrets.EC2_USER }}@${{ secrets.EC2_HOST }} << EOF
 
-          docker pull ${{ steps.login-ecr.outputs.registry }}/mini-cicd-demo:latest
+          IMAGE=${{ steps.login-ecr.outputs.registry }}/mini-cicd-demo:${{ github.sha }}
+
+          echo "Pulling new image..."
+          docker pull \$IMAGE
+
+          echo "Starting new container..."
+          docker run -d --name mini-app-new -p 8080:80 \$IMAGE
+
+          sleep 5
+
+          echo "Health check..."
+          if curl -f http://localhost:8080 > /dev/null; then
+          echo "New container healthy. Switching..."
 
           docker stop mini-app || true
           docker rm mini-app || true
 
-          docker run -d -p 80:80 --name mini-app \
-          ${{ steps.login-ecr.outputs.registry }}/mini-cicd-demo:latest
+          docker rename mini-app-new mini-app
+          docker stop mini-app
+          docker run -d -p 80:80 --name mini-app \$IMAGE
+
+          echo "Deployment successful."
+          else
+          echo "Health check failed. Rolling back."
+          docker rm -f mini-app-new
+          exit 1
+          fi
+
           EOF
 
