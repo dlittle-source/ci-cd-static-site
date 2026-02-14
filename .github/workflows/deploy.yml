@@ -43,10 +43,14 @@ jobs:
 
           IMAGE=${{ steps.login-ecr.outputs.registry }}/mini-cicd-demo:${{ github.sha }}
 
+          echo "Logging into ECR..."
+          aws ecr get-login-password --region ${{ secrets.AWS_REGION }} | \
+          docker login --username AWS --password-stdin ${{ steps.login-ecr.outputs.registry }}
+
           echo "Pulling new image..."
           docker pull \$IMAGE
 
-          echo "Starting new container..."
+          echo "Starting new container on test port..."
           docker run -d --name mini-app-new -p 8080:80 \$IMAGE
 
           sleep 5
@@ -58,9 +62,8 @@ jobs:
           docker stop mini-app || true
           docker rm mini-app || true
 
-          docker rename mini-app-new mini-app
-          docker stop mini-app
           docker run -d -p 80:80 --name mini-app \$IMAGE
+          docker rm -f mini-app-new
 
           echo "Deployment successful."
           else
